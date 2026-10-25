@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weather App | Sathishkumar M</title>
+  <style>
+    :root {
+      --bg: #dfe9f5;
+      --card: #ffffff;
+      --ink: #14213d;
+      --muted: #5b6b86;
+      --accent: #1f5fd6;
+      --err: #c0392b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: linear-gradient(160deg, #dfe9f5, #b9cdea);
+      color: var(--ink);
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 48px 16px;
+    }
+    .app {
+      width: 100%;
+      max-width: 400px;
+      background: var(--card);
+      border-radius: 20px;
+      padding: 28px 24px;
+      box-shadow: 0 10px 30px rgba(20, 33, 61, .18);
+    }
+    h1 { font-size: 1.4rem; text-align: center; margin-bottom: 18px; }
+
+    .search { display: flex; gap: 8px; }
+    input {
+      flex: 1;
+      padding: 11px 14px;
+      border: 2px solid #d3dce8;
+      border-radius: 10px;
+      font-size: 1rem;
+      min-width: 0;
+    }
+    input:focus { border-color: var(--accent); outline: none; }
+    button {
+      padding: 11px 18px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 10px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    button:hover { background: #174aa8; }
+    button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+    #msg { margin-top: 18px; text-align: center; color: var(--muted); min-height: 1.4em; }
+    #msg.error { color: var(--err); font-weight: 600; }
+
+    .result { margin-top: 18px; text-align: center; animation: fade .5s ease; }
+    .result[hidden] { display: none; }
+    @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .city { font-size: 1.5rem; font-weight: 700; }
+    .icon { width: 110px; height: 110px; }
+    .temp { font-size: 3.2rem; font-weight: 700; line-height: 1; }
+    .cond { margin-top: 6px; font-size: 1.1rem; color: var(--muted); text-transform: capitalize; }
+    .emoji { font-size: 5rem; line-height: 110px; height: 110px; }
+    .emoji[hidden] { display: none; }
+    .source { margin-top: 16px; font-size: .75rem; color: var(--muted); }
+    .stats { display: flex; justify-content: space-around; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e3e9f2; }
+    .stats strong { display: block; font-size: 1.25rem; }
+    .stats span { font-size: .85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>Weather App</h1>
+
+    <div class="search">
+      <input id="city" type="text" placeholder="Enter city name" aria-label="City name" autocomplete="off">
+      <button id="btn" type="button">Search</button>
+    </div>
+
+    <p id="msg" role="status">Type a city and press Search.</p>
+
+    <section class="result" id="result" hidden>
+      <p class="city" id="name"></p>
+      <img class="icon" id="icon" alt="">
+      <div class="emoji" id="emoji" hidden></div>
+      <p class="temp" id="temp"></p>
+      <p class="cond" id="cond"></p>
+      <div class="stats">
+        <div><strong id="humidity"></strong><span>Humidity</span></div>
+        <div><strong id="feels"></strong><span>Feels like</span></div>
+        <div><strong id="wind"></strong><span>Wind</span></div>
+      </div>
+      <p class="source" id="source"></p>
+    </section>
+  </main>
+
+  <script>
+    // OpenWeatherMap key: https://home.openweathermap.org/api_keys
+    // A new key can take up to 2 hours to activate. Until then the app uses
+    // the free Open-Meteo service as a backup, so it always shows weather.
+    const API_KEY = "940d13a74782645c7c38816f4cb5765e";
+
+    const input = document.getElementById("city");
+    const btn = document.getElementById("btn");
+    const msg = document.getElementById("msg");
+    const result = document.getElementById("result");
+
+    function showMessage(text, isError) {
+      msg.textContent = text;
+      msg.className = isError ? "error" : "";
+    }
+
+    // ---------- Main OpenWeatherMap request (Fetch API + JSON) ----------
+    async function fromOpenWeather(city) {
+      const url = "https://api.openweathermap.org/data/2.5/weather?q="
+        + encodeURIComponent(city) + "&units=metric&appid=" + API_KEY;
+      const response = await fetchWithTimeout(url);
+      const data = await response.json();
+
+      if (response.status === 404) throw new Error("NOT_FOUND");
+      if (!response.ok) throw new Error("KEY_OR_SERVER");
+
+      return {
+        name: data.name + ", " + data.sys.country,
+        temp: data.main.temp,
+        feels: data.main.feels_like,
+        humidity: data.main.humidity,
+        wind: data.wind.speed,
+        condition: data.weather[0].description,
+        iconUrl: "https://openweathermap.org/img/wn/" + data.weather[0].icon + "@2x.png",
+        source: "Data: OpenWeatherMap"
+      };
+    }
+
+    // ---------- Backup: Open-Meteo (no key needed) ----------
+    const CODES = {
+      0: ["Clear sky", "\u2600\uFE0F"], 1: ["Mainly clear", "\uD83C\uDF24\uFE0F"],
+      2: ["Partly cloudy", "\u26C5"], 3: ["Overcast", "\u2601\uFE0F"],
+      45: ["Fog", "\uD83C\uDF2B\uFE0F"], 48: ["Fog", "\uD83C\uDF2B\uFE0F"],
+      51: ["Light drizzle", "\uD83C\uDF26\uFE0F"], 53: ["Drizzle", "\uD83C\uDF26\uFE0F"], 55: ["Heavy drizzle", "\uD83C\uDF27\uFE0F"],
+      61: ["Light rain", "\uD83C\uDF27\uFE0F"], 63: ["Rain", "\uD83C\uDF27\uFE0F"], 65: ["Heavy rain", "\uD83C\uDF27\uFE0F"],
+      80: ["Rain showers", "\uD83C\uDF26\uFE0F"], 81: ["Rain showers", "\uD83C\uDF27\uFE0F"], 82: ["Violent showers", "\u26C8\uFE0F"],
+      95: ["Thunderstorm", "\u26C8\uFE0F"], 96: ["Thunderstorm with hail", "\u26C8\uFE0F"], 99: ["Thunderstorm with hail", "\u26C8\uFE0F"]
+    };
+
+    async function fromOpenMeteo(city) {
+      const geoRes = await fetchWithTimeout("https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + encodeURIComponent(city));
+      const geo = await geoRes.json();
+      if (!geo.results || !geo.results.length) throw new Error("NOT_FOUND");
+
+      const place = geo.results[0];
+      const wxUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + place.latitude
+        + "&longitude=" + place.longitude
+        + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code"
+        + "&wind_speed_unit=ms";
+      const wx = (await (await fetchWithTimeout(wxUrl)).json()).current;
+      const info = CODES[wx.weather_code] || ["Unknown", "\uD83C\uDF21\uFE0F"];
+
+      return {
+        name: place.name + (place.country_code ? ", " + place.country_code : ""),
+        temp: wx.temperature_2m,
+        feels: wx.apparent_temperature,
+        humidity: wx.relative_humidity_2m,
+        wind: wx.wind_speed_10m,
+        condition: info[0],
+        emoji: info[1],
+        source: "Data: Open-Meteo (backup, OpenWeatherMap key not active yet)"
+      };
+    }
+
+    // ---------- Third option: wttr.in (no key needed) ----------
+    async function fromWttr(city) {
+      const res = await fetchWithTimeout("https://wttr.in/" + encodeURIComponent(city) + "?format=j1");
+      if (!res.ok) throw new Error("SERVER");
+      const d = await res.json();
+      const cur = d.current_condition[0];
+      const area = d.nearest_area[0];
+      return {
+        name: area.areaName[0].value + ", " + area.country[0].value,
+        temp: Number(cur.temp_C),
+        feels: Number(cur.FeelsLikeC),
+        humidity: cur.humidity,
+        wind: (Number(cur.windspeedKmph) / 3.6).toFixed(1),
+        condition: cur.weatherDesc[0].value,
+        emoji: "\uD83C\uDF21\uFE0F",
+        source: "Data: wttr.in (backup)"
+      };
+    }
+
+    // fetch that gives up after 8 seconds instead of hanging
+    // (no AbortController, because some browsers/previews cannot pass it along)
+    function fetchWithTimeout(url) {
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out")), 8000));
+      return Promise.race([fetch(url), timeout]);
+    }
+
+    // ---------- Decide which source to use ----------
+    async function getWeather(city) {
+      showMessage("Loading...", false);
+      result.hidden = true;
+
+      // Try the sources one by one until one works
+      const sources = [];
+      if (API_KEY !== "PASTE_YOUR_API_KEY_HERE") sources.push(fromOpenWeather);
+      sources.push(fromOpenMeteo, fromWttr);
+
+      let notFound = false;
+      let lastError = null;
+
+      for (const source of sources) {
+        try {
+          const weather = await source(city);
+          showWeather(weather);
+          return;
+        } catch (err) {
+          console.error(source.name, err);
+          if (err.message === "NOT_FOUND") notFound = true;
+          else lastError = err;
+        }
+      }
+
+      if (notFound) {
+        showMessage("City not found. Check the spelling.", true);
+      } else {
+        showMessage("Could not reach any weather service (" + (lastError ? lastError.message : "unknown") + "). Check internet, VPN or ad-blocker.", true);
+      }
+    }
+
+    function showWeather(w) {
+      document.getElementById("name").textContent = w.name;
+      document.getElementById("temp").textContent = Math.round(w.temp) + "\u00B0C";
+      document.getElementById("cond").textContent = w.condition;
+      document.getElementById("humidity").textContent = w.humidity + "%";
+      document.getElementById("feels").textContent = Math.round(w.feels) + "\u00B0C";
+      document.getElementById("wind").textContent = w.wind + " m/s";
+      document.getElementById("source").textContent = w.source;
+
+      const icon = document.getElementById("icon");
+      const emoji = document.getElementById("emoji");
+      if (w.iconUrl) {
+        icon.src = w.iconUrl;
+        icon.alt = w.condition;
+        icon.hidden = false;
+        emoji.hidden = true;
+      } else {
+        icon.hidden = true;
+        emoji.textContent = w.emoji;
+        emoji.hidden = false;
+      }
+
+      showMessage("", false);
+      result.hidden = false;
+    }
+
+    function search() {
+      const city = input.value.trim();
+      if (!city) {
+        showMessage("Please enter a city name.", true);
+        return;
+      }
+      getWeather(city);
+    }
+
+    btn.addEventListener("click", search);
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") search();
+    });
+
+    // Show Chennai when the page opens
+    input.value = "Chennai";
+    getWeather("Chennai");
+  </script>
+</body>
+</html>
